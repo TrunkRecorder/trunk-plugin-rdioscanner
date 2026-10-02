@@ -20,7 +20,7 @@ struct Config {
     /// Server
     ///
     /// Your Rdio Scanner's web address, the one you open it with (like http://192.168.1.20:3000).
-    #[schemars(url)]
+    #[schemars(url, extend("x-required" = true))]
     #[serde(alias = "rdioscannerServer")]
     server: String,
 }
@@ -31,13 +31,14 @@ struct SystemConfig {
     /// API key
     ///
     /// A key from the API keys section of Rdio Scanner's administration page. Leave it empty to not upload this system.
-    #[schemars(extend("x-secret" = true))]
+    #[schemars(extend("x-secret" = true, "x-required" = true))]
     #[serde(alias = "rdioscannerApiKey")]
     api_key: String,
     /// System ID
     ///
     /// The system's ID in Rdio Scanner.
     #[serde(alias = "rdioscannerSystemId")]
+    #[schemars(extend("x-required" = true))]
     system_id: Option<u32>,
     /// Only these talkgroups
     ///

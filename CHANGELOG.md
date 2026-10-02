@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.1]
+
+- The server, and each system's API key and System ID, are marked as needed, so the recorder shows what's left to set up.
+- Built with trunk-recorder-plugin 0.1.1.
+
 ## [0.1.0]
 
 - Uploads recorded calls to Rdio Scanner with the fields Trunk Recorder's
