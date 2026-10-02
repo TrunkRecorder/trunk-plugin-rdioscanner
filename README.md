@@ -1,6 +1,6 @@
 # Rdio Scanner for Trunk Recorder Pro
 
-Uploads the calls [Trunk Recorder Pro](https://github.com/TrunkRecorder/trunk-recorder-lite)
+Uploads the calls [Trunk Recorder Pro](https://github.com/TrunkRecorder/trunk-recorder-pro)
 records to an [Rdio Scanner](https://github.com/chuot/rdio-scanner) server,
 so they can be listened to there. It does what Trunk Recorder's built-in Rdio
 Scanner uploader does.
