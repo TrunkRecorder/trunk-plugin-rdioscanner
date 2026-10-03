@@ -100,7 +100,7 @@ impl Plugin for RdioScanner {
             let filter = TalkgroupFilter::new(&c.talkgroup_allow, &c.talkgroup_deny);
             let filtered = if filter.is_empty() { String::new() } else { format!(", talkgroups: {}", filter.describe()) };
             host.info(format!("uploading {} as system {system_id}{filtered}", s.short_name));
-            targets.insert(s.index, Target { system_id, api_key, filter });
+            targets.insert(s.short_name.clone(), Target { system_id, api_key, filter });
         }
         if targets.is_empty() {
             return Err("Add an Rdio Scanner API key and system ID to the systems you want to upload.".into());
@@ -109,9 +109,12 @@ impl Plugin for RdioScanner {
             host.info("no M4A encoder: uploading WAV");
         }
         let uploader = Uploader::new(&server);
-        let opts = QueueOptions { noun: "upload", ..QueueOptions::saved_in(&setup.data_dir) };
+        // The dashboard names the service by its host.
+        let host_name = server.split_once("://").map_or(server.as_str(), |(_, r)| r).split('/').next().unwrap_or("").to_string();
+        let opts = QueueOptions { noun: "upload", endpoint: Some(format!("Rdio Scanner at {host_name}")), ..QueueOptions::saved_in(&setup.data_dir) };
         let queue = CallQueue::start(host, opts, move |call: &ConcludedCall| {
-            let Some(t) = targets.get(&call.system) else {
+            // By short name, a system's identity: a call saved for a later run still finds its system.
+            let Some(t) = targets.get(&call.call.short_name) else {
                 return Attempt::Skip("no Rdio Scanner API key for this system".into());
             };
             if call.call.encrypted {
