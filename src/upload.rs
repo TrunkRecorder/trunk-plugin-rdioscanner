@@ -74,11 +74,7 @@ fn form(u: &Upload, audio: &[u8]) -> (Vec<u8>, String) {
         .iter()
         .map(|s| {
             let tag = if s.tag.is_empty() { &s.tag_ota } else { &s.tag };
-            if tag.is_empty() {
-                json!({ "pos": round2(s.pos), "src": s.src })
-            } else {
-                json!({ "pos": round2(s.pos), "src": s.src, "tag": tag })
-            }
+            if tag.is_empty() { json!({ "pos": round2(s.pos), "src": s.src }) } else { json!({ "pos": round2(s.pos), "src": s.src, "tag": tag }) }
         })
         .collect();
     let freqs: Vec<_> = c
