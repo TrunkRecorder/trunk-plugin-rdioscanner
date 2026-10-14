@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+- A system can upload to a server of its own (the recorder's per-system override of the server), and each server has its own upload queue, so one that's down doesn't hold up the others. The dashboard shows each server's status.
+- Built with trunk-recorder-plugin 0.3.0.
+
 ## [0.1.1]
 
 - The server, and each system's API key and System ID, are marked as needed, so the recorder shows what's left to set up.

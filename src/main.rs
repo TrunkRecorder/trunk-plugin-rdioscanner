@@ -5,6 +5,7 @@
 mod upload;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use schemars::JsonSchema;
@@ -56,6 +57,9 @@ struct SystemConfig {
 
 /// Where a system's calls go.
 struct Target {
+    /// The server's host: the queue's lane for it.
+    host: String,
+    uploader: Arc<Uploader>,
     system_id: u32,
     api_key: String,
     filter: TalkgroupFilter,
@@ -63,6 +67,11 @@ struct Target {
 
 struct RdioScanner {
     queue: CallQueue,
+}
+
+/// A server's host (`rdio.example.com:3000`), to name it by.
+fn host_of(server: &str) -> String {
+    server.split_once("://").map_or(server, |(_, r)| r).split('/').next().unwrap_or("").to_string()
 }
 
 impl Plugin for RdioScanner {
@@ -80,13 +89,8 @@ impl Plugin for RdioScanner {
     }
 
     fn start(host: Host, setup: Setup<Config, SystemConfig>) -> Result<Self, String> {
-        let server = setup.config.server.trim().to_string();
-        if server.is_empty() {
-            return Err("Add your Rdio Scanner's web address.".into());
-        }
-        if !(server.starts_with("https://") || server.starts_with("http://")) {
-            return Err(format!("The server has to be a web address (http://…), not \"{server}\""));
-        }
+        // One uploader for each server (a system can name a server of its own).
+        let mut uploaders: HashMap<String, Arc<Uploader>> = HashMap::new();
         let mut targets = HashMap::new();
         for s in &setup.systems {
             let Some(c) = &s.config else { continue };
@@ -97,10 +101,19 @@ impl Plugin for RdioScanner {
             let Some(system_id) = c.system_id else {
                 return Err(format!("Add {}'s Rdio Scanner system ID (or clear its API key).", s.short_name));
             };
+            let server = s.settings.server.trim().trim_end_matches('/').to_string();
+            if server.is_empty() {
+                return Err(format!("Add the web address of the Rdio Scanner to upload {} to.", s.short_name));
+            }
+            if !(server.starts_with("https://") || server.starts_with("http://")) {
+                return Err(format!("The server has to be a web address (http://…), not \"{server}\""));
+            }
+            let uploader = uploaders.entry(server.clone()).or_insert_with(|| Arc::new(Uploader::new(&server))).clone();
             let filter = TalkgroupFilter::new(&c.talkgroup_allow, &c.talkgroup_deny);
             let filtered = if filter.is_empty() { String::new() } else { format!(", talkgroups: {}", filter.describe()) };
-            host.info(format!("uploading {} as system {system_id}{filtered}", s.short_name));
-            targets.insert(s.short_name.clone(), Target { system_id, api_key, filter });
+            let to = host_of(&server);
+            host.info(format!("uploading {} to {to} as system {system_id}{filtered}", s.short_name));
+            targets.insert(s.short_name.clone(), Target { host: to, uploader, system_id, api_key, filter });
         }
         if targets.is_empty() {
             return Err("Add an Rdio Scanner API key and system ID to the systems you want to upload.".into());
@@ -108,11 +121,13 @@ impl Plugin for RdioScanner {
         if !setup.has_format(format::M4A) {
             host.info("no M4A encoder: uploading WAV");
         }
-        let uploader = Uploader::new(&server);
-        // The dashboard names the service by its host.
-        let host_name = server.split_once("://").map_or(server.as_str(), |(_, r)| r).split('/').next().unwrap_or("").to_string();
-        let opts = QueueOptions { noun: "upload", endpoint: Some(format!("Rdio Scanner at {host_name}")), ..QueueOptions::saved_in(&setup.data_dir) };
-        let queue = CallQueue::start(host, opts, move |call: &ConcludedCall| {
+        // Each server is a lane of the queue: one that's down holds up no other.
+        // The dashboard names each by its host.
+        let targets = Arc::new(targets);
+        let lanes = targets.clone();
+        let opts = QueueOptions { noun: "upload", endpoint: Some("Rdio Scanner".into()), ..QueueOptions::saved_in(&setup.data_dir) };
+        let lane = move |call: &ConcludedCall| lanes.get(&call.call.short_name).map(|t| t.host.clone()).unwrap_or_default();
+        let queue = CallQueue::start_by(host, opts, lane, move |call: &ConcludedCall| {
             // By short name, a system's identity: a call saved for a later run still finds its system.
             let Some(t) = targets.get(&call.call.short_name) else {
                 return Attempt::Skip("no Rdio Scanner API key for this system".into());
@@ -124,7 +139,7 @@ impl Plugin for RdioScanner {
                 return Attempt::Skip(format!("talkgroup {} isn't uploaded (talkgroup filter)", call.call.talkgroup));
             }
             let audio = call.files.m4a.as_ref().filter(|p| p.is_file()).unwrap_or(&call.files.wav);
-            uploader.upload(&Upload { system_id: t.system_id, api_key: &t.api_key, call, audio })
+            t.uploader.upload(&Upload { system_id: t.system_id, api_key: &t.api_key, call, audio })
         });
         Ok(RdioScanner { queue })
     }
@@ -147,7 +162,7 @@ mod tests {
     use super::*;
     use serde_json::{Value, json};
     use trunk_recorder_plugin::testing::{self, MockServer, Request};
-    use trunk_recorder_plugin::{EXIT_CONFIG, HostMessage, Outcome, State};
+    use trunk_recorder_plugin::{EXIT_CONFIG, HostMessage, Outcome, State, SystemInfo};
 
     /// Rdio Scanner's call upload: key "good" works.
     fn rdio() -> MockServer {
@@ -265,5 +280,35 @@ mod tests {
         let out = testing::run::<RdioScanner>([hello(&dir, "http://x", json!({ "apiKey": "good" }))]);
         assert_eq!(out.exit_code, EXIT_CONFIG);
         assert!(out.status().unwrap().1.contains("system ID"));
+    }
+
+    /// A system can send its calls to a server of its own.
+    #[test]
+    fn a_system_overrides_the_server() {
+        let (dir, main, club) = (testing::temp_dir("rdio"), rdio(), rdio());
+        let mut h = testing::hello(&dir, json!({ "server": main.url() }));
+        h.systems[0].config = json!({ "apiKey": "good", "systemId": 1 });
+        h.systems.push(SystemInfo {
+            index: 1,
+            short_name: "sys2".into(),
+            kind: "p25".into(),
+            config: json!({ "apiKey": "good", "systemId": 2 }),
+            settings: json!({ "server": club.url() }),
+        });
+        let out = testing::run::<RdioScanner>([
+            HostMessage::Hello(h),
+            HostMessage::CallConcluded(testing::call(&dir, "sys1", 101)),
+            HostMessage::CallConcluded(testing::call(&dir, "sys2", 202)),
+        ]);
+        assert!(out.results().iter().all(|r| r.1 == Outcome::Ok), "{:?}", out.results());
+        let system = |s: &MockServer| s.requests().iter().map(|r| String::from_utf8(r.form_field("system").unwrap()).unwrap()).collect::<Vec<_>>();
+        assert_eq!(system(&main), ["1"]);
+        assert_eq!(system(&club), ["2"]);
+        // Each server has its own endpoint status.
+        let mut names: Vec<String> = out.metrics().last().unwrap().endpoints.iter().map(|e| e.name.clone()).collect();
+        let mut want = [main.url(), club.url()].map(|u| format!("Rdio Scanner at {}", host_of(u)));
+        names.sort();
+        want.sort();
+        assert_eq!(names, want);
     }
 }
