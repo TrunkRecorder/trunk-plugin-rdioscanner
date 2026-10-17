@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4]
+
+- A system's sites: Trunk Recorder Pro now has systems with several sites, and a
+  call heard on more than one is saved once and sent once, to the system's Rdio
+  Scanner system.
+- Built with trunk-recorder-plugin 0.4.0.
+
 ## [0.1.3]
 
 - A system can upload to a server of its own (the recorder's per-system override of the server), and each server has its own upload queue, so one that's down doesn't hold up the others. The dashboard shows each server's status.

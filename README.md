@@ -45,10 +45,16 @@ waiting. Calls still waiting when recording stops are kept, and sent when it
 starts again. A call the server refuses (a wrong API key, missing details)
 is marked failed and not tried again.
 
+A system can have several sites. A call heard on more than one is saved once,
+from the site that heard it best, and sent once, to the system's Rdio Scanner
+system: one Rdio Scanner system for all the sites.
+
 ## Coming from Trunk Recorder
 
 Trunk Recorder's plugin settings can be pasted in as they are: `server`, and
 each system's `apiKey`, `systemId`, `talkgroupAllow` and `talkgroupDeny`.
+Trunk Recorder systems that are sites of one system (`multiSite`) are one
+system here, uploaded with the first one's settings.
 
 ## Building
 
