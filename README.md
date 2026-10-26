@@ -25,12 +25,16 @@ For each system:
 |---|---|
 | **API key** | An Rdio Scanner API key. Leave it empty to not upload that system. |
 | **System ID** | The system's ID in Rdio Scanner. |
-| **Only these talkgroups** | Upload these talkgroups and no others. Leave it empty to upload all of them. |
-| **Not these talkgroups** | Never upload these talkgroups. |
+| **Talkgroups** | **Every talkgroup**, **Only some** or **All but some**. |
+| **Only these** | With **Only some**: upload these talkgroups and no others. |
+| **Except these** | With **Only some** or **All but some**: never upload these. |
 
-Talkgroups can be numbers or patterns: `*` stands for any digits and `?` for
-one, so `507*` is every talkgroup starting with 507. When both lists are set,
-a talkgroup has to be in the first and not in the second.
+Talkgroups can be numbers, ranges or patterns: `1000-1099` is every talkgroup
+from 1000 to 1099, `*` stands for any digits and `?` for one, so `507*` is
+every talkgroup starting with 507 and `12???` every five-digit one starting
+with 12. Separate them with commas or spaces. The plugin won't start with an
+entry that's none of these, and says which. Lists saved before the menu still
+apply (the log says so); choose the menu once to see them on the card.
 
 ## What it does with calls
 
@@ -52,7 +56,7 @@ system: one Rdio Scanner system for all the sites.
 ## Coming from Trunk Recorder
 
 Trunk Recorder's plugin settings can be pasted in as they are: `server`, and
-each system's `apiKey`, `systemId`, `talkgroupAllow` and `talkgroupDeny`.
+each system's `apiKey` and `systemId`; set its talkgroups with the **Talkgroups** menu.
 Trunk Recorder systems that are sites of one system (`multiSite`) are one
 system here, uploaded with the first one's settings.
 

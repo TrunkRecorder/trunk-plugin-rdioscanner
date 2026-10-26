@@ -1,4 +1,4 @@
 {
   "config": { "server": "http://127.0.0.1:3000" },
-  "systems": { "county": { "apiKey": "your-rdio-scanner-api-key", "systemId": 1, "talkgroupAllow": ["507*"] } }
+  "systems": { "county": { "apiKey": "your-rdio-scanner-api-key", "systemId": 1, "talkgroupMode": "only", "talkgroupAllow": ["507*", "1000-1099"] } }
 }
