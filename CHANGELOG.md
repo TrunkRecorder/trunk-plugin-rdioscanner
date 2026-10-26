@@ -5,9 +5,9 @@
 - **Talkgroups** is a menu on each system's card: **Every talkgroup**, **Only some** (with
   **Except these**) or **All but some**, each list shown when it applies. Lists take ranges
   (`1000-1099`) as well as numbers and patterns, separated by commas or spaces, and the plugin
-  won't start with an entry that's none of them, saying which. Lists saved before still apply, and
-  the log says to choose the menu to see them.
-- Built with trunk-recorder-plugin 0.7.1 (its `Talkgroups`), for Trunk Recorder Pro v0.2.10.
+  won't start with an entry that's none of them, saying which. **Breaking:** lists saved without a
+  menu choice no longer apply: choose the menu on each system's card.
+- Built with trunk-recorder-plugin 0.8.0 (its `Talkgroups`), for Trunk Recorder Pro v0.2.10.
 
 ## [0.1.5]
 

@@ -56,7 +56,7 @@ system: one Rdio Scanner system for all the sites.
 ## Coming from Trunk Recorder
 
 Trunk Recorder's plugin settings can be pasted in as they are: `server`, and
-each system's `apiKey`, `systemId`, `talkgroupAllow` and `talkgroupDeny`.
+each system's `apiKey` and `systemId`; set its talkgroups with the **Talkgroups** menu.
 Trunk Recorder systems that are sites of one system (`multiSite`) are one
 system here, uploaded with the first one's settings.
 

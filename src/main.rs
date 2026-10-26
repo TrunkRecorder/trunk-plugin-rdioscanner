@@ -99,7 +99,7 @@ impl Plugin for RdioScanner {
                 return Err(format!("The server has to be a web address (http://…), not \"{server}\""));
             }
             let uploader = uploaders.entry(server.clone()).or_insert_with(|| Arc::new(Uploader::new(&server))).clone();
-            let filter = c.talkgroups.filter_for(&host, &s.short_name)?;
+            let filter = c.talkgroups.filter_for(&s.short_name)?;
             let filtered = if filter.is_empty() { String::new() } else { format!(", talkgroups: {}", filter.describe()) };
             let to = host_of(&server);
             host.info(format!("uploading {} to {to} as system {system_id}{filtered}", s.short_name));
@@ -240,7 +240,7 @@ mod tests {
     fn talkgroup_filters() {
         let (dir, server) = (testing::temp_dir("rdio"), rdio());
         let out = testing::run::<RdioScanner>([
-            hello(&dir, server.url(), json!({ "apiKey": "good", "systemId": 1, "talkgroupAllow": ["1??"], "talkgroupDeny": [102] })),
+            hello(&dir, server.url(), json!({ "apiKey": "good", "systemId": 1, "talkgroupMode": "only", "talkgroupAllow": ["1??"], "talkgroupDeny": [102] })),
             HostMessage::CallConcluded(testing::call(&dir, "sys1", 101)),
             HostMessage::CallConcluded(testing::call(&dir, "sys1", 102)),
             HostMessage::CallConcluded(testing::call(&dir, "sys1", 1001)),
@@ -248,8 +248,6 @@ mod tests {
         let skipped = out.results().iter().filter(|r| r.1 == Outcome::Skipped).count();
         assert_eq!(skipped, 2);
         assert_eq!(server.requests().len(), 1);
-        // Lists from before the menu still apply, and it says where to see them.
-        assert!(out.logs().iter().any(|l| l.1.contains("sys1's talkgroups are set in older settings")), "{:?}", out.logs());
     }
 
     /// The menu: all but a range; and an entry that isn't a talkgroup stops it starting.
