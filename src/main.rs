@@ -10,8 +10,7 @@ use std::time::Duration;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use trunk_recorder_plugin::filter::patterns;
-use trunk_recorder_plugin::{Attempt, CallQueue, ConcludedCall, Host, Manifest, Plugin, QueueOptions, Setup, TalkgroupFilter, format, topic};
+use trunk_recorder_plugin::{Attempt, CallQueue, ConcludedCall, Host, Manifest, Plugin, QueueOptions, Setup, TalkgroupFilter, Talkgroups, format, topic};
 
 use upload::{Upload, Uploader};
 
@@ -41,18 +40,9 @@ struct SystemConfig {
     #[serde(alias = "rdioscannerSystemId")]
     #[schemars(extend("x-required" = true))]
     system_id: Option<u32>,
-    /// Only these talkgroups
-    ///
-    /// Upload these talkgroups and no others: numbers, or patterns like 507* (* stands for any digits, ? for one). Leave it empty to upload every talkgroup.
-    #[serde(deserialize_with = "patterns")]
-    #[schemars(with = "Vec<String>")]
-    talkgroup_allow: Vec<String>,
-    /// Not these talkgroups
-    ///
-    /// Never upload these talkgroups: numbers or patterns, as above.
-    #[serde(deserialize_with = "patterns")]
-    #[schemars(with = "Vec<String>")]
-    talkgroup_deny: Vec<String>,
+    // The talkgroups to upload: a menu, and the lists it asks for.
+    #[serde(flatten)]
+    talkgroups: Talkgroups,
 }
 
 /// Where a system's calls go.
@@ -109,7 +99,7 @@ impl Plugin for RdioScanner {
                 return Err(format!("The server has to be a web address (http://…), not \"{server}\""));
             }
             let uploader = uploaders.entry(server.clone()).or_insert_with(|| Arc::new(Uploader::new(&server))).clone();
-            let filter = TalkgroupFilter::new(&c.talkgroup_allow, &c.talkgroup_deny);
+            let filter = c.talkgroups.filter_for(&host, &s.short_name)?;
             let filtered = if filter.is_empty() { String::new() } else { format!(", talkgroups: {}", filter.describe()) };
             let to = host_of(&server);
             host.info(format!("uploading {} to {to} as system {system_id}{filtered}", s.short_name));
@@ -258,6 +248,24 @@ mod tests {
         let skipped = out.results().iter().filter(|r| r.1 == Outcome::Skipped).count();
         assert_eq!(skipped, 2);
         assert_eq!(server.requests().len(), 1);
+        // Lists from before the menu still apply, and it says where to see them.
+        assert!(out.logs().iter().any(|l| l.1.contains("sys1's talkgroups are set in older settings")), "{:?}", out.logs());
+    }
+
+    /// The menu: all but a range; and an entry that isn't a talkgroup stops it starting.
+    #[test]
+    fn talkgroups_chosen_in_the_menu() {
+        let (dir, server) = (testing::temp_dir("rdio"), rdio());
+        let out = testing::run::<RdioScanner>([
+            hello(&dir, server.url(), json!({ "apiKey": "good", "systemId": 1, "talkgroupMode": "allBut", "talkgroupDeny": ["100-199"] })),
+            HostMessage::CallConcluded(testing::call(&dir, "sys1", 150)),
+            HostMessage::CallConcluded(testing::call(&dir, "sys1", 250)),
+        ]);
+        assert_eq!(out.results().iter().filter(|r| r.1 == Outcome::Ok).count(), 1);
+        assert_eq!(String::from_utf8(server.requests()[0].form_field("talkgroup").unwrap()).unwrap(), "250");
+        let out = testing::run::<RdioScanner>([hello(&dir, server.url(), json!({ "apiKey": "good", "systemId": 1, "talkgroupMode": "only" }))]);
+        assert_eq!(out.exit_code, EXIT_CONFIG);
+        assert!(out.status().unwrap().1.contains("sys1's talkgroups: list the talkgroups"), "{:?}", out.status());
     }
 
     #[test]
@@ -294,6 +302,7 @@ mod tests {
             kind: "p25".into(),
             config: json!({ "apiKey": "good", "systemId": 2 }),
             settings: json!({ "server": club.url() }),
+            ..Default::default()
         });
         let out = testing::run::<RdioScanner>([
             HostMessage::Hello(h),
