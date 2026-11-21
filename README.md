@@ -17,7 +17,7 @@ Scanner uploader does.
 
 | Setting | |
 |---|---|
-| **Server** | Your Rdio Scanner's web address, the one you open it with (like `http://192.168.1.20:3000`). |
+| **Server** | Your Rdio Scanner's web address, the one you open it with (like `http://192.168.1.20:3000`). A system can send to another (its *shared settings* on its card in Setup). |
 
 For each system:
 
