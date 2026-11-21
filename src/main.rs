@@ -79,6 +79,8 @@ impl Plugin for RdioScanner {
             subscribe: vec![topic::CALL_CONCLUDED.into()],
             // Smaller uploads; WAV when there's no encoder.
             audio_formats: vec![format::M4A.into()],
+            // A system can upload to another server.
+            system_overrides: vec!["server".into()],
             ..trunk_recorder_plugin::manifest!()
         }
     }
@@ -158,6 +160,14 @@ mod tests {
     use serde_json::{Value, json};
     use trunk_recorder_plugin::testing::{self, MockServer, Request};
     use trunk_recorder_plugin::{EXIT_CONFIG, HostMessage, Outcome, State, SystemInfo};
+
+    /// What a system can set again is one of its settings.
+    #[test]
+    fn a_system_can_set_its_server() {
+        let m = trunk_recorder_plugin::describe::<RdioScanner>();
+        assert_eq!(m.system_overrides, ["server"]);
+        assert!(m.system_overrides.iter().all(|k| m.config.as_ref().unwrap()["properties"].get(k).is_some()));
+    }
 
     /// Rdio Scanner's call upload: key "good" works.
     fn rdio() -> MockServer {
