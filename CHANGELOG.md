@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+- Calls with no audio are no longer uploaded (the recorder keeps them when **Keep calls with no
+  audio** is on). They are marked skipped.
+- A busy Rdio Scanner (`429`/`503`) that says how long to wait (`Retry-After`) isn't sent the call again
+  sooner: uploads read its answers as every plugin now does (trunk-recorder-plugin's
+  `Attempt::from_status`). Built with trunk-recorder-plugin 0.15.0.
+
 ## [0.1.7]
 
 - Four uploads at once for each server, up from two. Every system sending to the same server shares
