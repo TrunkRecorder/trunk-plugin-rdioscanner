@@ -10,7 +10,9 @@ use std::time::Duration;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use trunk_recorder_plugin::{Attempt, CallQueue, ConcludedCall, Host, Manifest, Plugin, QueueOptions, Setup, TalkgroupFilter, Talkgroups, format, topic};
+use trunk_recorder_plugin::{
+    Attempt, CallQueue, ConcludedCall, Host, Manifest, Plugin, QueueOptions, Setup, System, TalkgroupFilter, Talkgroups, format, topic,
+};
 
 use upload::{Upload, Uploader};
 
@@ -50,9 +52,15 @@ struct Target {
     /// The server's host: the queue's lane for it.
     host: String,
     uploader: Arc<Uploader>,
-    system_id: u32,
-    api_key: String,
     filter: TalkgroupFilter,
+    /// The system, with its settings and its sites' ([`System::targets`]).
+    system: System<Config, SystemConfig>,
+}
+
+/// A system's (or a site's) Rdio Scanner system ID and API key, when it has both.
+fn node(c: &SystemConfig) -> Option<(u32, &str)> {
+    let key = c.api_key.trim();
+    c.system_id.filter(|_| !key.is_empty()).map(|id| (id, key))
 }
 
 struct RdioScanner {
@@ -81,6 +89,8 @@ impl Plugin for RdioScanner {
             audio_formats: vec![format::M4A.into()],
             // A system can upload to another server.
             system_overrides: vec!["server".into()],
+            // A site that's an Rdio Scanner system of its own.
+            site_overrides: vec!["apiKey".into(), "systemId".into()],
             ..trunk_recorder_plugin::manifest!()
         }
     }
@@ -89,15 +99,21 @@ impl Plugin for RdioScanner {
         // One uploader for each server (a system can name a server of its own).
         let mut uploaders: HashMap<String, Arc<Uploader>> = HashMap::new();
         let mut targets = HashMap::new();
-        for s in &setup.systems {
+        let has_m4a = setup.has_format(format::M4A);
+        for s in setup.systems {
             let Some(c) = &s.config else { continue };
-            let api_key = c.api_key.trim().to_string();
-            if api_key.is_empty() {
+            if !c.api_key.trim().is_empty() && c.system_id.is_none() {
+                return Err(format!("Add {}'s Rdio Scanner system ID (or clear its API key).", s.short_name));
+            }
+            for site in s.sites.iter().filter(|t| t.config.is_some()) {
+                if site.config.as_ref().and_then(node).is_none() {
+                    return Err(format!("Add the Rdio Scanner system ID and API key of {}'s site {}.", s.short_name, site.name));
+                }
+            }
+            let sites: Vec<(&str, u32)> = s.sites.iter().filter_map(|t| Some((t.name.as_str(), t.config.as_ref().and_then(node)?.0))).collect();
+            if node(c).is_none() && sites.is_empty() {
                 continue;
             }
-            let Some(system_id) = c.system_id else {
-                return Err(format!("Add {}'s Rdio Scanner system ID (or clear its API key).", s.short_name));
-            };
             let server = s.settings.server.trim().trim_end_matches('/').to_string();
             if server.is_empty() {
                 return Err(format!("Add the web address of the Rdio Scanner to upload {} to.", s.short_name));
@@ -109,13 +125,19 @@ impl Plugin for RdioScanner {
             let filter = c.talkgroups.filter_for(&s.short_name)?;
             let filtered = if filter.is_empty() { String::new() } else { format!(", talkgroups: {}", filter.describe()) };
             let to = host_of(&server);
-            host.info(format!("uploading {} to {to} as system {system_id}{filtered}", s.short_name));
-            targets.insert(s.short_name.clone(), Target { host: to, uploader, system_id, api_key, filter });
+            match node(c) {
+                Some((id, _)) => host.info(format!("uploading {} to {to} as system {id}{filtered}", s.short_name)),
+                None => host.info(format!("uploading {} to {to} only from its sites with an Rdio Scanner system of their own{filtered}", s.short_name)),
+            }
+            for (site, id) in &sites {
+                host.info(format!("uploading {}'s site {site} as system {id}", s.short_name));
+            }
+            targets.insert(s.short_name.clone(), Target { host: to, uploader, filter, system: s });
         }
         if targets.is_empty() {
             return Err("Add an Rdio Scanner API key and system ID to the systems you want to upload.".into());
         }
-        if !setup.has_format(format::M4A) {
+        if !has_m4a {
             host.info("no M4A encoder: uploading WAV");
         }
         // Each server is a lane of the queue: one that's down holds up no other.
@@ -140,7 +162,17 @@ impl Plugin for RdioScanner {
                 return Attempt::Skip(format!("talkgroup {} isn't uploaded (talkgroup filter)", call.call.talkgroup));
             }
             let audio = call.files.m4a.as_ref().filter(|p| p.is_file()).unwrap_or(&call.files.wav);
-            t.uploader.upload(&Upload { system_id: t.system_id, api_key: &t.api_key, call, audio })
+            // Each Rdio Scanner system the sites that heard it send to, once.
+            let mut nodes: Vec<(u32, &str)> = Vec::new();
+            for d in t.system.targets(&call.call) {
+                if let Some(n) = node(d.config).filter(|n| !nodes.contains(n)) {
+                    nodes.push(n);
+                }
+            }
+            if nodes.is_empty() {
+                return Attempt::Skip("none of the sites that heard it has an Rdio Scanner system".into());
+            }
+            Attempt::together(nodes.into_iter().map(|(system_id, api_key)| t.uploader.upload(&Upload { system_id, api_key, call, audio })))
         });
         Ok(RdioScanner { queue })
     }
@@ -163,13 +195,14 @@ mod tests {
     use super::*;
     use serde_json::{Value, json};
     use trunk_recorder_plugin::testing::{self, MockServer, Request};
-    use trunk_recorder_plugin::{EXIT_CONFIG, HostMessage, Outcome, State, SystemInfo};
+    use trunk_recorder_plugin::{EXIT_CONFIG, HostMessage, Outcome, SiteInfo, SiteRef, State, SystemInfo};
 
     /// What a system can set again is one of its settings.
     #[test]
     fn a_system_can_set_its_server() {
         let m = trunk_recorder_plugin::describe::<RdioScanner>();
         assert_eq!(m.system_overrides, ["server"]);
+        assert_eq!(m.site_overrides, ["apiKey", "systemId"], "a site can be a system of its own");
         assert!(m.system_overrides.iter().all(|k| m.config.as_ref().unwrap()["properties"].get(k).is_some()));
     }
 
@@ -320,6 +353,39 @@ mod tests {
         let out = testing::run::<RdioScanner>([hello(&dir, "http://x", json!({ "apiKey": "good" }))]);
         assert_eq!(out.exit_code, EXIT_CONFIG);
         assert!(out.status().unwrap().1.contains("system ID"));
+    }
+
+    /// A site with an Rdio Scanner system of its own: the calls it heard go there, whichever site's
+    /// copy was kept; those only the others heard, to the system's.
+    #[test]
+    fn a_site_of_its_own() {
+        let dir = testing::temp_dir("rdio");
+        // (The recorder sends each site's settings as the system's with what it sets again.)
+        let run = |system: Value, south: Value, heard: &[(u32, &str)]| {
+            let server = rdio();
+            let mut h = testing::hello(&dir, json!({ "server": server.url() }));
+            h.systems[0].config = system;
+            h.systems[0].sites = vec![SiteInfo { id: 7, name: "north".into(), config: Value::Null }, SiteInfo { id: 8, name: "south".into(), config: south }];
+            let mut call = testing::call(&dir, "sys1", 103);
+            call.call.site = heard[0].1.into();
+            call.call.sites = heard.iter().map(|&(id, name)| SiteRef { id, name: name.into() }).collect();
+            let out = testing::run::<RdioScanner>([HostMessage::Hello(h), HostMessage::CallConcluded(call)]);
+            let mut ids: Vec<String> = server.requests().iter().filter_map(|r| r.form_field("system")).map(|v| String::from_utf8(v).unwrap()).collect();
+            ids.sort();
+            (ids, out.results().into_iter().map(|r| r.1).collect::<Vec<_>>(), format!("{out:?}"))
+        };
+        let system = json!({ "apiKey": "good", "systemId": 42 });
+        let south = json!({ "apiKey": "good", "systemId": 77 });
+        assert_eq!(run(system.clone(), south.clone(), &[(7, "north"), (8, "south")]).0, ["42", "77"], "north has none of its own: the system's; south's own");
+        assert_eq!(run(system.clone(), south.clone(), &[(8, "south")]).0, ["77"]);
+        assert_eq!(run(system.clone(), south.clone(), &[(7, "north")]).0, ["42"]);
+        // No system of the whole system's: only what south heard goes.
+        let only = json!({ "systemId": 42 });
+        assert_eq!(run(only.clone(), south.clone(), &[(7, "north"), (8, "south")]).0, ["77"]);
+        let (ids, results, _) = run(only, south, &[(7, "north")]);
+        assert_eq!((ids, results), (Vec::<String>::new(), vec![Outcome::Skipped]));
+        // A site of its own needs its system ID and key.
+        assert!(run(system, json!({ "apiKey": "good" }), &[(8, "south")]).2.contains("site south"));
     }
 
     /// A system can send its calls to a server of its own.

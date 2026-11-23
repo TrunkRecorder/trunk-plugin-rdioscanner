@@ -29,6 +29,12 @@ For each system:
 | **Only these** | With **Only some**: upload these talkgroups and no others. |
 | **Except these** | With **Only some** or **All but some**: never upload these. |
 
+A system with several sites has a row for each of them on its card in Setup. A site that's a system
+of its own in Rdio Scanner gets its own **API key** and **System ID** there: every call it heard goes
+to it, and a call two such sites heard goes to both. A call only the system's other sites heard goes
+to the system's. With no API key for the whole system, only the calls a site of its own heard are
+uploaded.
+
 Talkgroups can be numbers, ranges or patterns: `1000-1099` is every talkgroup
 from 1000 to 1099, `*` stands for any digits and `?` for one, so `507*` is
 every talkgroup starting with 507 and `12???` every five-digit one starting
