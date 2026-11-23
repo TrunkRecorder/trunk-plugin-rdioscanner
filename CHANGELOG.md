@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+- Calls with no audio are no longer uploaded (the recorder keeps them when **Keep calls with no
+  audio** is on). They are marked skipped.
+- Built with trunk-recorder-plugin 0.14.0.
+
 ## [0.1.7]
 
 - Four uploads at once for each server, up from two. Every system sending to the same server shares
