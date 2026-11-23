@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.9]
 
 - Calls with no audio are no longer uploaded (the recorder keeps them when **Keep calls with no
   audio** is on). They are marked skipped.
