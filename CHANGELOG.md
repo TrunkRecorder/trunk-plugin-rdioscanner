@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+- A site can be an Rdio Scanner system of its own: its own **API key** and **System ID**, set under
+  the site on its system's card. Calls it heard go there; those only the other sites heard go to the
+  system's. A call heard by both goes to each, once.
+- Built with trunk-recorder-plugin 0.14.0.
+
 ## [0.1.7]
 
 - Four uploads at once for each server, up from two. Every system sending to the same server shares
