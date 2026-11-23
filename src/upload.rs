@@ -43,26 +43,20 @@ impl Uploader {
             Err(e) => return Attempt::Retry(e.to_string()),
         };
         let status = resp.status().as_u16();
+        let retry_after = resp.headers().get("retry-after").and_then(|v| v.to_str().ok()).map(str::to_string);
         let text = resp.body_mut().read_to_string().unwrap_or_default();
-        outcome(status, &text)
+        outcome(status, retry_after.as_deref(), &text)
     }
 }
 
-fn outcome(status: u16, text: &str) -> Attempt {
-    // (A 202: Rdio Scanner took it for later.)
-    if (200..300).contains(&status) {
-        return Attempt::Done { url: String::new() };
-    }
+fn outcome(status: u16, retry_after: Option<&str>, text: &str) -> Attempt {
     let what: String = text.trim().lines().next().unwrap_or("").chars().take(200).collect();
-    if status == 401 || status == 403 || what.contains("API key") {
+    // (A 202: Rdio Scanner took it for later.)
+    if !(200..300).contains(&status) && (status == 401 || status == 403 || what.contains("API key")) {
         return Attempt::Fail(format!("Rdio Scanner refused the API key ({what})"));
     }
     let why = if what.is_empty() { format!("HTTP {status}") } else { format!("HTTP {status}: {what}") };
-    match status {
-        // Something else about the request was wrong; it won't get better.
-        400..=499 if status != 408 && status != 429 => Attempt::Fail(why),
-        _ => Attempt::Retry(why),
-    }
+    Attempt::from_status(status, retry_after, why)
 }
 
 /// The multipart body, and its content type.
@@ -119,11 +113,13 @@ mod tests {
 
     #[test]
     fn responses() {
-        assert!(matches!(outcome(200, "Call imported successfully."), Attempt::Done { .. }));
-        assert!(matches!(outcome(202, ""), Attempt::Done { .. }));
-        assert!(matches!(outcome(401, "Invalid API key"), Attempt::Fail(_)));
-        assert!(matches!(outcome(417, "Incomplete call data: no talkgroup"), Attempt::Fail(_)));
-        assert!(matches!(outcome(500, ""), Attempt::Retry(_)));
-        assert!(matches!(outcome(429, ""), Attempt::Retry(_)));
+        assert!(matches!(outcome(200, None, "Call imported successfully."), Attempt::Done { .. }));
+        assert!(matches!(outcome(202, None, ""), Attempt::Done { .. }));
+        assert!(matches!(outcome(401, None, "Invalid API key"), Attempt::Fail(_)));
+        assert!(matches!(outcome(417, None, "Incomplete call data: no talkgroup"), Attempt::Fail(_)));
+        assert!(matches!(outcome(500, None, ""), Attempt::Retry(_)));
+        assert!(matches!(outcome(429, None, ""), Attempt::Retry(_)));
+        // Busy, and it said for how long: waited on.
+        assert!(matches!(outcome(503, Some("60"), ""), Attempt::Wait(_, w) if w.as_secs() == 60));
     }
 }

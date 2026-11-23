@@ -10,7 +10,9 @@ use std::time::Duration;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use trunk_recorder_plugin::{Attempt, CallQueue, ConcludedCall, Host, Manifest, Plugin, QueueOptions, Setup, System, TalkgroupFilter, Talkgroups, format, topic};
+use trunk_recorder_plugin::{
+    Attempt, CallQueue, ConcludedCall, Host, Manifest, Plugin, QueueOptions, Setup, System, TalkgroupFilter, Talkgroups, format, topic,
+};
 
 use upload::{Upload, Uploader};
 
@@ -59,18 +61,6 @@ struct Target {
 fn node(c: &SystemConfig) -> Option<(u32, &str)> {
     let key = c.api_key.trim();
     c.system_id.filter(|_| !key.is_empty()).map(|id| (id, key))
-}
-
-/// One call's attempts, one for each Rdio Scanner system it went to, as one:
-/// try again if any should be, else failed if any was refused, else done if any took it.
-fn together(attempts: Vec<Attempt>) -> Attempt {
-    let rank = |a: &Attempt| match a {
-        Attempt::Retry(_) => 3,
-        Attempt::Fail(_) => 2,
-        Attempt::Done { .. } => 1,
-        Attempt::Skip(_) => 0,
-    };
-    attempts.into_iter().max_by_key(rank).unwrap_or(Attempt::Skip("nowhere to send it".into()))
 }
 
 struct RdioScanner {
@@ -164,6 +154,10 @@ impl Plugin for RdioScanner {
             if call.call.encrypted {
                 return Attempt::Skip("encrypted".into());
             }
+            // Kept with none by "Keep calls with no audio": nothing to play.
+            if !call.call.has_audio() {
+                return Attempt::Skip("no audio".into());
+            }
             if !t.filter.passes(call.call.talkgroup) {
                 return Attempt::Skip(format!("talkgroup {} isn't uploaded (talkgroup filter)", call.call.talkgroup));
             }
@@ -178,7 +172,7 @@ impl Plugin for RdioScanner {
             if nodes.is_empty() {
                 return Attempt::Skip("none of the sites that heard it has an Rdio Scanner system".into());
             }
-            together(nodes.into_iter().map(|(system_id, api_key)| t.uploader.upload(&Upload { system_id, api_key, call, audio })).collect())
+            Attempt::together(nodes.into_iter().map(|(system_id, api_key)| t.uploader.upload(&Upload { system_id, api_key, call, audio })))
         });
         Ok(RdioScanner { queue })
     }
@@ -279,6 +273,21 @@ mod tests {
         let r = &server.requests()[0];
         assert_eq!(r.form_field("audioType").unwrap(), b"audio/wav");
         assert_eq!(r.form_field("audio").unwrap(), std::fs::read(&call.files.wav).unwrap());
+    }
+
+    /// A call kept with no audio ("Keep calls with no audio"); a 0.4 s one, whose `call_length` says 0, has some.
+    #[test]
+    fn calls_with_no_audio_are_skipped() {
+        let (dir, server) = (testing::temp_dir("rdio-silent"), rdio());
+        let mut silent = testing::call(&dir, "sys1", 101);
+        (silent.call.call_length, silent.call.call_length_ms) = (0.0, 0);
+        let out = testing::run::<RdioScanner>([hello(&dir, server.url(), json!({ "apiKey": "good", "systemId": 1 })), HostMessage::CallConcluded(silent)]);
+        assert_eq!(out.results()[0].1, Outcome::Skipped);
+        assert!(server.requests().is_empty());
+        let mut short = testing::call(&dir, "sys1", 102);
+        (short.call.call_length, short.call.call_length_ms) = (0.0, 400);
+        let out = testing::run::<RdioScanner>([hello(&dir, server.url(), json!({ "apiKey": "good", "systemId": 1 })), HostMessage::CallConcluded(short)]);
+        assert_eq!(out.results()[0].1, Outcome::Ok, "{:?}", out.results());
     }
 
     #[test]

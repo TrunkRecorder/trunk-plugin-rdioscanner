@@ -2,10 +2,14 @@
 
 ## [Unreleased]
 
+- Calls with no audio are no longer uploaded (the recorder keeps them when **Keep calls with no
+  audio** is on). They are marked skipped.
+- A busy Rdio Scanner (`429`/`503`) that says how long to wait (`Retry-After`) isn't sent the call again
+  sooner: uploads read its answers as every plugin now does (trunk-recorder-plugin's
+  `Attempt::from_status`). Built with trunk-recorder-plugin 0.15.0.
 - A site can be an Rdio Scanner system of its own: its own **API key** and **System ID**, set under
   the site on its system's card. Calls it heard go there; those only the other sites heard go to the
   system's. A call heard by both goes to each, once.
-- Built with trunk-recorder-plugin 0.14.0.
 
 ## [0.1.7]
 
