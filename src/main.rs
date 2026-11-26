@@ -146,6 +146,8 @@ impl Plugin for RdioScanner {
         let lanes = targets.clone();
         let opts = QueueOptions { threads: UPLOAD_THREADS, noun: "upload", endpoint: Some("Rdio Scanner".into()), ..QueueOptions::saved_in(&setup.data_dir) };
         let lane = move |call: &ConcludedCall| lanes.get(&call.call.short_name).map(|t| t.host.clone()).unwrap_or_default();
+        // A call's own details, which its reason leaves out.
+        let log = host.clone();
         let queue = CallQueue::start_by(host, opts, lane, move |call: &ConcludedCall| {
             // By short name, a system's identity: a call saved for a later run still finds its system.
             let Some(t) = targets.get(&call.call.short_name) else {
@@ -159,6 +161,7 @@ impl Plugin for RdioScanner {
                 return Attempt::Skip("no audio".into());
             }
             if !t.filter.passes(call.call.talkgroup) {
+                log.info(format!("{}: talkgroup {} isn't uploaded (talkgroup filter)", call.path, call.call.talkgroup));
                 return Attempt::Skip("talkgroup filter".into());
             }
             let audio = call.files.m4a.as_ref().filter(|p| p.is_file()).unwrap_or(&call.files.wav);
@@ -315,6 +318,9 @@ mod tests {
         let skipped = out.results().iter().filter(|r| r.1 == Outcome::Skipped).count();
         assert_eq!(skipped, 2);
         assert_eq!(server.requests().len(), 1);
+        // One reason for every filtered call; which talkgroup is in the log.
+        assert!(out.results().iter().filter(|r| r.1 == Outcome::Skipped).all(|r| r.2 == "talkgroup filter"));
+        assert!(out.logs().iter().any(|(_, l)| l.ends_with("talkgroup 102 isn't uploaded (talkgroup filter)")), "{:?}", out.logs());
     }
 
     /// The menu: all but a range; and an entry that isn't a talkgroup stops it starting.
