@@ -35,7 +35,7 @@ impl Uploader {
     pub fn upload(&self, u: &Upload) -> Attempt {
         let audio = match std::fs::read(u.audio) {
             Ok(b) => b,
-            Err(e) => return Attempt::Fail(format!("can't read {}: {e}", u.audio.display())),
+            Err(e) => return Attempt::Fail(format!("can't read its audio: {e}")),
         };
         let (body, content_type) = form(u, &audio);
         let mut resp = match self.agent.post(&self.url).header("Content-Type", &content_type).send(&body) {

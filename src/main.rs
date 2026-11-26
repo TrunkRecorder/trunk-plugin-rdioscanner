@@ -159,7 +159,7 @@ impl Plugin for RdioScanner {
                 return Attempt::Skip("no audio".into());
             }
             if !t.filter.passes(call.call.talkgroup) {
-                return Attempt::Skip(format!("talkgroup {} isn't uploaded (talkgroup filter)", call.call.talkgroup));
+                return Attempt::Skip("talkgroup filter".into());
             }
             let audio = call.files.m4a.as_ref().filter(|p| p.is_file()).unwrap_or(&call.files.wav);
             // Each Rdio Scanner system the sites that heard it send to, once.
